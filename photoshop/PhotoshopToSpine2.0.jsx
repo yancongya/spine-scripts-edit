@@ -570,28 +570,172 @@ function run () {
 // Settings dialog:
 
 function showSettingsDialog () {
-	if (parseInt(app.version) < 9) {
-		alert("Photoshop CS2 or later is required.");
-		return;
-	}
-	if (!originalDoc) {
-		alert("请在运行脚本前打开文件。");
-		return;
-	}
-	try {
-		decodeURI(activeDocument.path);
-	} catch (e) {
-		alert("请在运行脚本前先保存文件。");
-		return;
+	// 首先定义所有辅助函数
+	function getBlendModeName(blendMode) {
+		switch (blendMode) {
+			case BlendMode.NORMAL: return "正常";
+			case BlendMode.DISSOLVE: return "溶解";
+			case BlendMode.DARKEN: return "变暗";
+			case BlendMode.MULTIPLY: return "正片叠底";
+			case BlendMode.COLORBURN: return "颜色加深";
+			case BlendMode.LINEARBURN: return "线性加深";
+			case BlendMode.LIGHTEN: return "变亮";
+			case BlendMode.SCREEN: return "滤色";
+			case BlendMode.COLORDODGE: return "颜色减淡";
+			case BlendMode.LINEARDODGE: return "线性减淡";
+			case BlendMode.OVERLAY: return "叠加";
+			case BlendMode.SOFTLIGHT: return "柔光";
+			case BlendMode.HARDLIGHT: return "强光";
+			case BlendMode.VIVIDLIGHT: return "亮光";
+			case BlendMode.LINEARLIGHT: return "线性光";
+			case BlendMode.PINLIGHT: return "点光";
+			case BlendMode.HARDMIX: return "实色混合";
+			case BlendMode.DIFFERENCE: return "差值";
+			case BlendMode.EXCLUSION: return "排除";
+			case BlendMode.SUBTRACT: return "减去";
+			case BlendMode.DIVIDE: return "划分";
+			case BlendMode.HUE: return "色相";
+			case BlendMode.SATURATION: return "饱和度";
+			case BlendMode.COLOR: return "颜色";
+			case BlendMode.LUMINOSITY: return "明度";
+			default: return "未知模式";
+		}
 	}
 
-	// Layout.
-	var dialog, group;
-	try {
-		dialog = new Window("dialog", "PhotoshopToSpine v" + scriptVersion);
-	} catch (e) {
-		throw new Error("\n\nScript is unable to create a Window. Your Photoshop installation may be broken and may need to be reinstalled.\n\n" + e.message);
+	function hasLayerEffects(layer) {
+		try {
+			var effects = layer.layerEffects;
+			return effects.dropShadow || effects.innerShadow || effects.outerGlow || 
+				   effects.innerGlow || effects.bevel || effects.solidFill || 
+				   effects.gradientFill || effects.patternFill || effects.satin || 
+				   effects.colorOverlay || effects.gradientOverlay || effects.patternOverlay || 
+				   effects.stroke;
+		} catch(e) {
+			return false;
+		}
 	}
+
+	function hasAdjustmentLayer(layer) {
+		try {
+			if (layer.kind != LayerKind.NORMAL) {
+				return true;
+			}
+			if (layer.smartObject && layer.smartObjectMore && layer.smartObjectMore.filterFX) {
+				return true;
+			}
+			return false;
+		} catch(e) {
+			return false;
+		}
+	}
+
+	function processBlendLayers(doc) {
+		var layersProcessed = 0;
+		for (var i = 0; i < doc.layers.length; i++) {
+			processBlendLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processBlendLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				if (layer.blendMode != BlendMode.NORMAL) {
+					var blendModeName = getBlendModeName(layer.blendMode);
+					layer.blendMode = BlendMode.NORMAL;
+					layer.name = blendModeName + "_" + layer.name;
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				for (var i = 0; i < layer.layers.length; i++) {
+					processBlendLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	function processStyleLayers(doc) {
+		var layersProcessed = 0;
+		for (var i = 0; i < doc.layers.length; i++) {
+			processStyleLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processStyleLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				if (layer.layerEffects && hasLayerEffects(layer)) {
+					layer.name = "样式_" + layer.name;
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				var hasLayerStyle = false;
+				for (var i = 0; i < layer.layers.length; i++) {
+					if (layer.layers[i].typename === "ArtLayer" && 
+						layer.layers[i].layerEffects && hasLayerEffects(layer.layers[i])) {
+						hasLayerStyle = true;
+						break;
+					}
+				}
+				
+				if (hasLayerStyle) {
+					layer.name = "组样式_" + layer.name;
+					layersProcessed++;
+				}
+
+				for (var i = 0; i < layer.layers.length; i++) {
+					processStyleLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	function processEffectLayers(doc) {
+		var layersProcessed = 0;
+		for (var i = 0; i < doc.layers.length; i++) {
+			processEffectLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processEffectLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				if (hasAdjustmentLayer(layer)) {
+					layer.name = "效果_" + layer.name;
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				for (var i = 0; i < layer.layers.length; i++) {
+					processEffectLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	function processDuplicateLayers(doc) {
+		var layersProcessed = 0;
+		var nameCounts = {};
+		for (var i = 0; i < doc.layers.length; i++) {
+			processDuplicateLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processDuplicateLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				var processedName = layer.name.replace(/\s+/g, '');
+				if (nameCounts[processedName] == undefined) {
+					nameCounts[processedName] = 0;
+				} else {
+					nameCounts[processedName]++;
+					layer.name = processedName + "_" + nameCounts[processedName];
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				for (var i = 0; i < layer.layers.length; i++) {
+					processDuplicateLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	// 然后创建对话框和UI元素
+	var dialog = new Window("dialog", "PhotoshopToSpine v" + scriptVersion);
 	dialog.alignChildren = "fill";
 
 	try {
@@ -702,28 +846,34 @@ function showSettingsDialog () {
 			jsonPathText.alignment = "fill";
 		}
 
-	// 添加"检测"面板
+	// 创建检测面板
 	var detectionGroup = dialog.add("panel", undefined, "检测");
 	detectionGroup.alignChildren = ["fill", ""];
 	detectionGroup.margins = [10, 15, 10, 10];
 	detectionGroup.helpTip = "提供图层检测和自动处理功能";
 
-	// 添加"混合模式检测"按钮
-	var blendDetectionButton = detectionGroup.add("button", undefined, "混合模式检测");
-	blendDetectionButton.helpTip = "检测并处理特殊混合模式的图层，将其转换为正常模式并在名称中标注原混合模式";
+	// 添加检测选项的复选框
+	var blendDetectionCheckbox = detectionGroup.add("checkbox", undefined, "混合模式检测");
+	blendDetectionCheckbox.value = true;
+	blendDetectionCheckbox.helpTip = "检测并处理特殊混合模式的图层，将其转换为正常模式并在名称中标注原混合模式";
 
-	// 添加"图层样式检测"按钮
-	var styleDetectionButton = detectionGroup.add("button", undefined, "图层样式检测");
-	styleDetectionButton.helpTip = "检测并处理使用了图层样式的图层，添加前缀标识";
+	var styleDetectionCheckbox = detectionGroup.add("checkbox", undefined, "图层样式检测");
+	styleDetectionCheckbox.value = true;
+	styleDetectionCheckbox.helpTip = "检测并处理使用了图层样式的图层，添加前缀标识";
 
-	// 添加"效果/滤镜检测"按钮
-	var effectDetectionButton = detectionGroup.add("button", undefined, "效果/滤镜检测");
-	effectDetectionButton.helpTip = "检测并处理使用了效果或滤镜的图层，添加前缀标识";
+	var effectDetectionCheckbox = detectionGroup.add("checkbox", undefined, "效果/滤镜检测");
+	effectDetectionCheckbox.value = true;
+	effectDetectionCheckbox.helpTip = "检测并处理使用了效果或滤镜的图层，添加前缀标识";
 
-	// 添加"重名检测"按钮
-	var duplicateDetectionButton = detectionGroup.add("button", undefined, "重名图层检测");
-	duplicateDetectionButton.helpTip = "检测并处理重名图层，自动为重复的图层名称添加编号";
+	var duplicateDetectionCheckbox = detectionGroup.add("checkbox", undefined, "重名图层检测");
+	duplicateDetectionCheckbox.value = true;
+	duplicateDetectionCheckbox.helpTip = "检测并处理重名图层，自动为重复的图层名称添加编号";
 
+	// 添加"开始检测"按钮
+	var startDetectionButton = detectionGroup.add("button", undefined, "开始检测");
+	startDetectionButton.helpTip = "开始执行选中的检测项";
+
+	// 添加按钮组
 	var buttonGroup = dialog.add("group");
 		var helpButton;
 		if (!cs2) helpButton = buttonGroup.add("button", undefined, "帮助");
@@ -732,6 +882,159 @@ function showSettingsDialog () {
 			group.alignChildren = ["right", ""];
 			var runButton = group.add("button", undefined, "确定");
 			var cancelButton = group.add("button", undefined, "取消");
+
+	// 开始检测按钮点击事件
+	startDetectionButton.onClick = function() {
+		try {
+			if (app.documents.length > 0) {
+				var doc = app.activeDocument;
+				var totalProcessed = 0;
+				
+				// 执行选中的检测项
+				if (blendDetectionCheckbox.value) {
+					var blendProcessed = processBlendLayers(doc);
+					totalProcessed += blendProcessed;
+				}
+				
+				if (styleDetectionCheckbox.value) {
+					var styleProcessed = processStyleLayers(doc);
+					totalProcessed += styleProcessed;
+				}
+				
+				if (effectDetectionCheckbox.value) {
+					var effectProcessed = processEffectLayers(doc);
+					totalProcessed += effectProcessed;
+				}
+				
+				if (duplicateDetectionCheckbox.value) {
+					var duplicateProcessed = processDuplicateLayers(doc);
+					totalProcessed += duplicateProcessed;
+				}
+				
+				// 显示处理结果
+				if (totalProcessed > 0) {
+					alert("检测完成！共处理 " + totalProcessed + " 个图层。");
+				} else {
+					alert("未发现需要处理的图层。");
+				}
+			} else {
+				alert("没有打开的文档！");
+			}
+		} catch(e) {
+			alert("处理过程中发生错误：" + e.message);
+		}
+	};
+
+	// 处理混合模式的函数
+	function processBlendLayers(doc) {
+		var layersProcessed = 0;
+		for (var i = 0; i < doc.layers.length; i++) {
+			processBlendLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processBlendLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				if (layer.blendMode != BlendMode.NORMAL) {
+					var blendModeName = getBlendModeName(layer.blendMode);
+					layer.blendMode = BlendMode.NORMAL;
+					layer.name = blendModeName + "_" + layer.name;
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				for (var i = 0; i < layer.layers.length; i++) {
+					processBlendLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	// 处理图层样式的函数
+	function processStyleLayers(doc) {
+		var layersProcessed = 0;
+		for (var i = 0; i < doc.layers.length; i++) {
+			processStyleLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processStyleLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				if (layer.layerEffects && hasLayerEffects(layer)) {
+					layer.name = "样式_" + layer.name;
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				var hasLayerStyle = false;
+				for (var i = 0; i < layer.layers.length; i++) {
+					if (layer.layers[i].typename === "ArtLayer" && 
+						layer.layers[i].layerEffects && hasLayerEffects(layer.layers[i])) {
+						hasLayerStyle = true;
+						break;
+					}
+				}
+				
+				if (hasLayerStyle) {
+					layer.name = "组样式_" + layer.name;
+					layersProcessed++;
+				}
+
+				for (var i = 0; i < layer.layers.length; i++) {
+					processStyleLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	// 处理效果/滤镜的函数
+	function processEffectLayers(doc) {
+		var layersProcessed = 0;
+		for (var i = 0; i < doc.layers.length; i++) {
+			processEffectLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processEffectLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				if (hasAdjustmentLayer(layer)) {
+					layer.name = "效果_" + layer.name;
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				for (var i = 0; i < layer.layers.length; i++) {
+					processEffectLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	// 处理重名图层的函数
+	function processDuplicateLayers(doc) {
+		var layersProcessed = 0;
+		var nameCounts = {};
+		for (var i = 0; i < doc.layers.length; i++) {
+			processDuplicateLayer(doc.layers[i]);
+		}
+		return layersProcessed;
+
+		function processDuplicateLayer(layer) {
+			if (layer.typename === "ArtLayer") {
+				var processedName = layer.name.replace(/\s+/g, '');
+				if (nameCounts[processedName] == undefined) {
+					nameCounts[processedName] = 0;
+				} else {
+					nameCounts[processedName]++;
+					layer.name = processedName + "_" + nameCounts[processedName];
+					layersProcessed++;
+				}
+			} else if (layer.typename === "LayerSet") {
+				for (var i = 0; i < layer.layers.length; i++) {
+					processDuplicateLayer(layer.layers[i]);
+				}
+			}
+		}
+	}
+
+	// ... 其他现有代码 ...
 
 	// Tooltips.
 	writeTemplateCheckbox.helpTip = "选中后，将为当前可见图层生成PNG图像。";
@@ -742,290 +1045,6 @@ function showSettingsDialog () {
 	paddingSlider.helpTip = "图像边缘周围的空白像素。可以避免图像边缘不透明像素产生混叠伪影。";
 	imagesDirText.helpTip = "写入PNG的文件夹。以\"./\"开头表示相对于PSD文件的位置。留空则不导出PNG。";
 	jsonPathText.helpTip = "如果以\".json\"结尾则为输出JSON文件，否则为写入JSON文件的文件夹。以\"./\"开头表示相对于PSD文件的位置。留空则不生成JSON文件。";
-
-	// 混合模式检测按钮点击事件
-	blendDetectionButton.onClick = function() {
-		try {
-			if (app.documents.length > 0) {
-				var doc = app.activeDocument;
-				var layersProcessed = 0;
-
-				// 处理所有顶层图层和图层组
-				for (var i = 0; i < doc.layers.length; i++) {
-					processBlendLayer(doc.layers[i]);
-				}
-
-				// 显示处理结果
-				if (layersProcessed > 0) {
-					alert("混合模式处理完成！已处理 " + layersProcessed + " 个图层。");
-				} else {
-					alert("未找到使用特殊混合模式的图层。");
-				}
-			} else {
-				alert("没有打开的文档！");
-			}
-		} catch(e) {
-			alert("处理过程中发生错误：" + e.message);
-		}
-
-		// 处理混合模式的函数
-		function processBlendLayer(layer) {
-			if (layer.typename === "ArtLayer") {
-				// 检查图层是否使用了除"正常"以外的任何混合模式
-				if (layer.blendMode != BlendMode.NORMAL) {
-					// 获取当前图层的混合模式名称（中文）
-					var blendModeName = getBlendModeName(layer.blendMode);
-					
-					// 将图层模式改为"正常"
-					layer.blendMode = BlendMode.NORMAL;
-
-					// 在图层名称前添加混合模式前缀
-					layer.name = blendModeName + "_" + layer.name;
-					layersProcessed++;
-				}
-			} else if (layer.typename === "LayerSet") {
-				// 递归处理图层组中的图层
-				for (var i = 0; i < layer.layers.length; i++) {
-					processBlendLayer(layer.layers[i]);
-				}
-			}
-		}
-
-		// 获取混合模式的中文名称
-		function getBlendModeName(blendMode) {
-			switch (blendMode) {
-				case BlendMode.NORMAL: return "正常";
-				case BlendMode.DISSOLVE: return "溶解";
-				case BlendMode.DARKEN: return "变暗";
-				case BlendMode.MULTIPLY: return "正片叠底";
-				case BlendMode.COLORBURN: return "颜色加深";
-				case BlendMode.LINEARBURN: return "线性加深";
-				case BlendMode.LIGHTEN: return "变亮";
-				case BlendMode.SCREEN: return "滤色";
-				case BlendMode.COLORDODGE: return "颜色减淡";
-				case BlendMode.LINEARDODGE: return "线性减淡";
-				case BlendMode.OVERLAY: return "叠加";
-				case BlendMode.SOFTLIGHT: return "柔光";
-				case BlendMode.HARDLIGHT: return "强光";
-				case BlendMode.VIVIDLIGHT: return "亮光";
-				case BlendMode.LINEARLIGHT: return "线性光";
-				case BlendMode.PINLIGHT: return "点光";
-				case BlendMode.HARDMIX: return "实色混合";
-				case BlendMode.DIFFERENCE: return "差值";
-				case BlendMode.EXCLUSION: return "排除";
-				case BlendMode.SUBTRACT: return "减去";
-				case BlendMode.DIVIDE: return "划分";
-				case BlendMode.HUE: return "色相";
-				case BlendMode.SATURATION: return "饱和度";
-				case BlendMode.COLOR: return "颜色";
-				case BlendMode.LUMINOSITY: return "明度";
-				default: return "未知模式";
-			}
-		}
-	};
-
-	// 图层样式检测按钮点击事件
-	styleDetectionButton.onClick = function() {
-		try {
-			if (app.documents.length > 0) {
-				var doc = app.activeDocument;
-				var layersProcessed = 0;
-
-				// 处理所有顶层图层和图层组
-				for (var i = 0; i < doc.layers.length; i++) {
-					processStyleLayer(doc.layers[i]);
-				}
-
-				// 显示处理结果
-				if (layersProcessed > 0) {
-					alert("图层样式处理完成！已处理 " + layersProcessed + " 个图层或组。");
-				} else {
-					alert("未找到使用图层样式的图层。");
-				}
-			} else {
-				alert("没有打开的文档！");
-			}
-		} catch(e) {
-			alert("处理过程中发生错误：" + e.message);
-		}
-
-		// 处理图层样式的函数
-		function processStyleLayer(layer) {
-			if (layer.typename === "ArtLayer") {
-				// 检查图层是否有图层样式
-				if (layer.layerEffects && hasLayerEffects(layer)) {
-					// 在图层名称前添加样式前缀
-					layer.name = "样式_" + layer.name;
-					layersProcessed++;
-				}
-			} else if (layer.typename === "LayerSet") {
-				// 如果是图层组，检查组内是否有图层样式
-				var hasLayerStyle = false;
-				for (var i = 0; i < layer.layers.length; i++) {
-					if (layer.layers[i].typename === "ArtLayer" && 
-						layer.layers[i].layerEffects && hasLayerEffects(layer.layers[i])) {
-						hasLayerStyle = true;
-						break;
-					}
-				}
-
-				// 如果图层组中有图层样式，修改组名
-				if (hasLayerStyle) {
-					layer.name = "组样式_" + layer.name;
-					layersProcessed++;
-				}
-
-				// 递归处理组内的所有图层
-				for (var i = 0; i < layer.layers.length; i++) {
-					processStyleLayer(layer.layers[i]);
-				}
-			}
-		}
-
-		// 检查图层是否有任何图层效果
-		function hasLayerEffects(layer) {
-			try {
-				var effects = layer.layerEffects;
-				return effects.dropShadow || effects.innerShadow || effects.outerGlow || 
-					   effects.innerGlow || effects.bevel || effects.solidFill || 
-					   effects.gradientFill || effects.patternFill || effects.satin || 
-					   effects.colorOverlay || effects.gradientOverlay || effects.patternOverlay || 
-					   effects.stroke;
-			} catch(e) {
-				return false;
-			}
-		}
-	};
-
-	// 效果/滤镜检测按钮点击事件
-	effectDetectionButton.onClick = function() {
-		try {
-			if (app.documents.length > 0) {
-				var doc = app.activeDocument;
-				var layersProcessed = 0;
-
-				// 处理所有顶层图层和图层组
-				for (var i = 0; i < doc.layers.length; i++) {
-					processEffectLayer(doc.layers[i]);
-				}
-
-				// 显示处理结果
-				if (layersProcessed > 0) {
-					alert("效果/滤镜处理完成！已处理 " + layersProcessed + " 个图层。");
-				} else {
-					alert("未找到使用效果或滤镜的图层。");
-				}
-			} else {
-				alert("没有打开的文档！");
-			}
-		} catch(e) {
-			alert("处理过程中发生错误：" + e.message);
-		}
-
-		// 处理效果/滤镜的函数
-		function processEffectLayer(layer) {
-			if (layer.typename === "ArtLayer") {
-				// 检查图层是否有滤镜或特殊效果
-				if (hasAdjustmentLayer(layer)) {
-					// 在图层名称前添加效果前缀
-					layer.name = "效果_" + layer.name;
-					layersProcessed++;
-				}
-			} else if (layer.typename === "LayerSet") {
-				// 递归处理图层组中的图层
-				for (var i = 0; i < layer.layers.length; i++) {
-					processEffectLayer(layer.layers[i]);
-				}
-			}
-		}
-
-		// 检查图层是否是调整图层或有滤镜效果
-		function hasAdjustmentLayer(layer) {
-			try {
-				if (layer.kind != LayerKind.NORMAL) {
-					return true;
-				}
-				// 检查是否有智能滤镜
-				if (layer.smartObject && layer.smartObjectMore && layer.smartObjectMore.filterFX) {
-					return true;
-				}
-				return false;
-			} catch(e) {
-				return false;
-			}
-		}
-
-		// 获取调整图层类型的名称
-		function getAdjustmentLayerName(layerKind) {
-			switch(layerKind) {
-				case LayerKind.LEVELS: return "色阶";
-				case LayerKind.CURVES: return "曲线";
-				case LayerKind.COLORBALANCE: return "颜色平衡";
-				case LayerKind.BRIGHTNESSCONTRAST: return "亮度/对比度";
-				case LayerKind.BLACKANDWHITE: return "黑白";
-				case LayerKind.HUESATURATION: return "色相/饱和度";
-				case LayerKind.SELECTIVECOLOR: return "可选颜色";
-				case LayerKind.CHANNELMIXER: return "通道混合器";
-				case LayerKind.GRADIENTMAP: return "渐变映射";
-				case LayerKind.INVERSION: return "反相";
-				case LayerKind.THRESHOLD: return "阈值";
-				case LayerKind.POSTERIZE: return "色调分离";
-				case LayerKind.SMARTOBJECT: return "智能对象";
-				default: return "特殊图层";
-			}
-		}
-	};
-
-	// 重名图层检测按钮点击事件
-	duplicateDetectionButton.onClick = function() {
-		try {
-			if (app.documents.length > 0) {
-				var doc = app.activeDocument;
-				// 用于记录每个处理后的图层名称出现的次数
-				var nameCounts = {}; 
-				var duplicatesFound = 0;
-
-				// 处理所有顶层图层和图层组
-				for (var i = 0; i < doc.layers.length; i++) {
-					processDuplicateLayer(doc.layers[i]);
-				}
-
-				// 显示处理结果
-				if (duplicatesFound > 0) {
-					alert("重名图层处理完成！已处理 " + duplicatesFound + " 个重名图层。");
-				} else {
-					alert("未发现重名图层。");
-				}
-			} else {
-				alert("没有打开的文档！");
-			}
-		} catch(e) {
-			alert("处理过程中发生错误：" + e.message);
-		}
-
-		// 处理重名图层的函数
-		function processDuplicateLayer(layer) {
-			if (layer.typename === "ArtLayer") {
-				// 删除图层名称中的空格
-				var processedName = layer.name.replace(/\s+/g, '');
-
-				// 检查处理后的图层名称是否已经存在
-				if (nameCounts[processedName] == undefined) {
-					nameCounts[processedName] = 0; // 初始化计数器
-				} else {
-					// 增加计数器并修改图层名称
-					nameCounts[processedName]++;
-					layer.name = processedName + "_" + nameCounts[processedName];
-					duplicatesFound++;
-				}
-			} else if (layer.typename === "LayerSet") {
-				// 递归处理图层组中的图层
-				for (var i = 0; i < layer.layers.length; i++) {
-					processDuplicateLayer(layer.layers[i]);
-				}
-			}
-		}
-	};
 
 	// Events.
 	scaleText.onChanging = function () { scaleSlider.value = scaleText.text; };
