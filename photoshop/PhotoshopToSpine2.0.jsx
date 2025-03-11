@@ -879,24 +879,69 @@ function showSettingsDialog () {
 			jsonPathText.alignment = "fill";
 		}
 
-	// 创建检测面板
+	// 修改检测面板部分
 	var detectionGroup = dialog.add("panel", undefined, "检测");
 	detectionGroup.alignChildren = ["fill", ""];
 	detectionGroup.margins = [10, 15, 10, 10];
 	detectionGroup.helpTip = "提供图层检测和自动处理功能";
 
-	// 只保留两个复选框
-	var blendDetectionCheckbox = detectionGroup.add("checkbox", undefined, "混合模式检测");
-	blendDetectionCheckbox.value = true;
-	blendDetectionCheckbox.helpTip = "检测并处理特殊混合模式的图层，将其转换为正常模式并在名称中标注原混合模式";
+	// 创建一个水平排列的组来放置复选框
+	var checkboxGroup = detectionGroup.add("group");
+	checkboxGroup.orientation = "row";
+	checkboxGroup.alignChildren = ["left", "center"];
+	checkboxGroup.spacing = 20; // 设置两个复选框之间的间距
 
-	var duplicateDetectionCheckbox = detectionGroup.add("checkbox", undefined, "重名图层检测");
+	// 创建混合模式检测复选框
+	var blendDetectionCheckbox = checkboxGroup.add("checkbox", undefined, "混合模式检测");
+	blendDetectionCheckbox.value = true;
+	blendDetectionCheckbox.helpTip = "检测并处理特殊混合模式的图层\n右键点击可以单独执行混合模式检测";
+
+	// 创建重名图层检测复选框
+	var duplicateDetectionCheckbox = checkboxGroup.add("checkbox", undefined, "重名图层检测");
 	duplicateDetectionCheckbox.value = true;
-	duplicateDetectionCheckbox.helpTip = "检测并处理重名图层，自动为重复的图层名称添加编号";
+	duplicateDetectionCheckbox.helpTip = "检测并处理重名图层\n右键点击可以单独执行重名检测";
 
 	// 添加"开始检测"按钮
 	var startDetectionButton = detectionGroup.add("button", undefined, "开始检测");
-	startDetectionButton.helpTip = "开始执行选中的检测项";
+	startDetectionButton.helpTip = "执行所有选中的检测项";
+
+	// 为混合模式检测复选框添加右键菜单事件
+	blendDetectionCheckbox.addEventListener('mousedown', function(ev) {
+		if (ev.button == 2) { // 右键点击
+			try {
+				if (app.documents.length > 0) {
+					var doc = app.activeDocument;
+					var blendProcessed = processBlendLayers(doc);
+					if (blendProcessed > 0) {
+						alert("混合模式检测完成！处理了 " + blendProcessed + " 个图层。");
+					}
+				} else {
+					alert("没有打开的文档！");
+				}
+			} catch(e) {
+				alert("处理过程中发生错误：" + e.message);
+			}
+		}
+	});
+
+	// 为重名图层检测复选框添加右键菜单事件
+	duplicateDetectionCheckbox.addEventListener('mousedown', function(ev) {
+		if (ev.button == 2) { // 右键点击
+			try {
+				if (app.documents.length > 0) {
+					var doc = app.activeDocument;
+					var duplicateProcessed = processDuplicateLayers(doc);
+					if (duplicateProcessed > 0) {
+						alert("重名图层检测完成！处理了 " + duplicateProcessed + " 个图层。");
+					}
+				} else {
+					alert("没有打开的文档！");
+				}
+			} catch(e) {
+				alert("处理过程中发生错误：" + e.message);
+			}
+		}
+	});
 
 	// 添加按钮组
 	var buttonGroup = dialog.add("group");
