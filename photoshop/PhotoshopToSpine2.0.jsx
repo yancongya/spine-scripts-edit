@@ -1279,7 +1279,7 @@ function showHelpDialog () {
 	dialog.alignChildren = ["fill", ""];
 	dialog.orientation = "column";
 	dialog.alignment = ["", "top"];
-
+	
 	var helpText = dialog.add("statictext", undefined, ""
 		+ "本脚本将图层导出为图像文件，并创建JSON文件，使图像在Spine中保持与Photoshop中相同的位置和绘制顺序。\n"
 		+ "\n"
@@ -1306,17 +1306,32 @@ function showHelpDialog () {
 		+ "•  图层名称用作附件或皮肤占位符名称，相对于任何父[skin]或[folder]组。可以包含/表示子文件夹。\n"
 		+ "•  [path:名称]  指定图像文件名，如果需要与附件名称不同。可以在带有[merge]的组上使用。\n"
 		+ "\n"
-		+ "如果图层名称、文件夹名称或路径名称以/开头，则父图层不会影响名称。"
+		+ "如果图层名称、文件夹名称或路径名称以/开头，则父图层不会影响名称。\n"
+		+ "\n"
+		+ "新增功能：\n"
+		+ "1. 混合模式检测\n"
+		+ "   - 检测使用了特殊混合模式的图层\n" 
+		+ "   - 可以将其转换为正常模式并在名称前添加原混合模式标识\n"
+		+ "   - 右键点击\"混合模式检测\"文本可以单独执行此功能\n"
+		+ "2. 重名图层检测\n"
+		+ "   - 检测文档中的重名图层\n"
+		+ "   - 可以自动为重复的图层名称添加编号\n"
+		+ "   - 右键点击\"重名图层检测\"文本可以单独执行此功能\n"
+		+ "\n"
+		+ "使用技巧：\n"
+		+ "- 勾选需要的检测项，点击\"开始检测\"执行所有选中的检测\n"
+		+ "- 右键点击检测项文本可以快速执行单个检测\n"
+		+ "- 检测前建议先保存文档，以便需要时可以撤销更改"
 	, {multiline: true});
 	helpText.preferredSize.width = 325;
-
+	
 	var closeButton = dialog.add("button", undefined, "关闭");
 	closeButton.alignment = ["center", ""];
 
 	closeButton.onClick = function () {
 		dialog.close();
 	};
-
+	
 	dialog.center();
 	dialog.show();
 }
