@@ -604,13 +604,45 @@ function showSettingsDialog () {
 
 	function hasLayerEffects(layer) {
 		try {
+			// 首先检查图层是否有效果
+			if (!layer.layerEffects) return false;
+			
 			var effects = layer.layerEffects;
-			return effects.dropShadow || effects.innerShadow || effects.outerGlow || 
-				   effects.innerGlow || effects.bevel || effects.solidFill || 
-				   effects.gradientFill || effects.patternFill || effects.satin || 
-				   effects.colorOverlay || effects.gradientOverlay || effects.patternOverlay || 
-				   effects.stroke;
+			
+			// 调试输出
+			$.writeln("图层名称: " + layer.name);
+			$.writeln("图层效果属性:");
+			for (var prop in effects) {
+				$.writeln(prop + ": " + effects[prop]);
+				// 如果是对象，进一步查看其属性
+				if (typeof effects[prop] === 'object') {
+					for (var subProp in effects[prop]) {
+						$.writeln("  - " + subProp + ": " + effects[prop][subProp]);
+					}
+				}
+			}
+			
+			// 检查所有可能的图层样式
+			if (effects.frameFX && effects.frameFX.enabled) return true;      // 描边
+			if (effects.dropShadow && effects.dropShadow.enabled) return true;        // 投影
+			if (effects.innerShadow && effects.innerShadow.enabled) return true;      // 内阴影
+			if (effects.outerGlow && effects.outerGlow.enabled) return true;         // 外发光
+			if (effects.innerGlow && effects.innerGlow.enabled) return true;         // 内发光
+			if (effects.bevelEmboss && effects.bevelEmboss.enabled) return true;     // 斜面和浮雕
+			if (effects.chromeFX && effects.chromeFX.enabled) return true;          // 光泽
+			if (effects.solidFill && effects.solidFill.enabled) return true;         // 纯色
+			if (effects.gradientFill && effects.gradientFill.enabled) return true;   // 渐变
+			if (effects.patternFill && effects.patternFill.enabled) return true;     // 图案
+			if (effects.satin && effects.satin.enabled) return true;             // 光泽
+			if (effects.colorOverlay && effects.colorOverlay.enabled) return true;    // 颜色叠加
+			if (effects.gradientOverlay && effects.gradientOverlay.enabled) return true;   // 渐变叠加
+			if (effects.patternOverlay && effects.patternOverlay.enabled) return true;    // 图案叠加
+
+			// 如果没有任何效果返回 false
+			return false;
 		} catch(e) {
+			// 如果出现错误，打印错误信息以便调试
+			$.writeln("检查图层效果时出错: " + e);
 			return false;
 		}
 	}
@@ -638,13 +670,28 @@ function showSettingsDialog () {
 
 		function processBlendLayer(layer) {
 			if (layer.typename === "ArtLayer") {
-				if (layer.blendMode != BlendMode.NORMAL) {
-					var blendModeName = getBlendModeName(layer.blendMode);
-					layer.blendMode = BlendMode.NORMAL;
-					layer.name = blendModeName + "_" + layer.name;
-					layersProcessed++;
+				try {
+					// 使用字符串比较而不是枚举值
+					if (layer.blendMode.toString() !== "BlendMode.NORMAL") {
+						var blendModeName = getBlendModeName(layer.blendMode);
+						// 保存原始混合模式名称
+						var originalBlendMode = layer.blendMode;
+						try {
+							// 尝试设置为正常模式
+							layer.blendMode = BlendMode.NORMAL;
+							// 如果成功，则更新图层名称
+							layer.name = blendModeName + "_" + layer.name;
+							layersProcessed++;
+						} catch(e) {
+							// 如果设置失败，恢复原始混合模式
+							layer.blendMode = originalBlendMode;
+						}
+					}
+				} catch(e) {
+					// 忽略无法处理的图层
 				}
 			} else if (layer.typename === "LayerSet") {
+				// 递归处理组内的所有图层
 				for (var i = 0; i < layer.layers.length; i++) {
 					processBlendLayer(layer.layers[i]);
 				}
@@ -853,20 +900,12 @@ function showSettingsDialog () {
 	detectionGroup.helpTip = "提供图层检测和自动处理功能";
 
 	// 添加检测选项的复选框
-	var blendDetectionCheckbox = detectionGroup.add("checkbox", undefined, "混合模式检测");
-	blendDetectionCheckbox.value = true;
-	blendDetectionCheckbox.helpTip = "检测并处理特殊混合模式的图层，将其转换为正常模式并在名称中标注原混合模式";
-
 	var styleDetectionCheckbox = detectionGroup.add("checkbox", undefined, "图层样式检测");
-	styleDetectionCheckbox.value = true;
+	styleDetectionCheckbox.value = true; // 默认勾选
 	styleDetectionCheckbox.helpTip = "检测并处理使用了图层样式的图层，添加前缀标识";
 
-	var effectDetectionCheckbox = detectionGroup.add("checkbox", undefined, "效果/滤镜检测");
-	effectDetectionCheckbox.value = true;
-	effectDetectionCheckbox.helpTip = "检测并处理使用了效果或滤镜的图层，添加前缀标识";
-
 	var duplicateDetectionCheckbox = detectionGroup.add("checkbox", undefined, "重名图层检测");
-	duplicateDetectionCheckbox.value = true;
+	duplicateDetectionCheckbox.value = true; // 默认勾选
 	duplicateDetectionCheckbox.helpTip = "检测并处理重名图层，自动为重复的图层名称添加编号";
 
 	// 添加"开始检测"按钮
@@ -890,20 +929,9 @@ function showSettingsDialog () {
 				var doc = app.activeDocument;
 				var totalProcessed = 0;
 				
-				// 执行选中的检测项
-				if (blendDetectionCheckbox.value) {
-					var blendProcessed = processBlendLayers(doc);
-					totalProcessed += blendProcessed;
-				}
-				
 				if (styleDetectionCheckbox.value) {
 					var styleProcessed = processStyleLayers(doc);
 					totalProcessed += styleProcessed;
-				}
-				
-				if (effectDetectionCheckbox.value) {
-					var effectProcessed = processEffectLayers(doc);
-					totalProcessed += effectProcessed;
 				}
 				
 				if (duplicateDetectionCheckbox.value) {
@@ -935,17 +963,66 @@ function showSettingsDialog () {
 
 		function processBlendLayer(layer) {
 			if (layer.typename === "ArtLayer") {
-				if (layer.blendMode != BlendMode.NORMAL) {
-					var blendModeName = getBlendModeName(layer.blendMode);
-					layer.blendMode = BlendMode.NORMAL;
-					layer.name = blendModeName + "_" + layer.name;
-					layersProcessed++;
+				try {
+					// 使用字符串比较而不是枚举值
+					if (layer.blendMode.toString() !== "BlendMode.NORMAL") {
+						var blendModeName = getBlendModeName(layer.blendMode);
+						// 保存原始混合模式名称
+						var originalBlendMode = layer.blendMode;
+						try {
+							// 尝试设置为正常模式
+							layer.blendMode = BlendMode.NORMAL;
+							// 如果成功，则更新图层名称
+							layer.name = blendModeName + "_" + layer.name;
+							layersProcessed++;
+						} catch(e) {
+							// 如果设置失败，恢复原始混合模式
+							layer.blendMode = originalBlendMode;
+						}
+					}
+				} catch(e) {
+					// 忽略无法处理的图层
 				}
 			} else if (layer.typename === "LayerSet") {
+				// 递归处理组内的所有图层
 				for (var i = 0; i < layer.layers.length; i++) {
 					processBlendLayer(layer.layers[i]);
 				}
 			}
+		}
+	}
+
+	// 修改 getBlendModeName 函数
+	function getBlendModeName(blendMode) {
+		// 将混合模式转换为字符串
+		var mode = blendMode.toString();
+		switch (mode) {
+			case "BlendMode.NORMAL": return "正常";
+			case "BlendMode.DISSOLVE": return "溶解";
+			case "BlendMode.DARKEN": return "变暗";
+			case "BlendMode.MULTIPLY": return "正片叠底";
+			case "BlendMode.COLORBURN": return "颜色加深";
+			case "BlendMode.LINEARBURN": return "线性加深";
+			case "BlendMode.LIGHTEN": return "变亮";
+			case "BlendMode.SCREEN": return "滤色";
+			case "BlendMode.COLORDODGE": return "颜色减淡";
+			case "BlendMode.LINEARDODGE": return "线性减淡";
+			case "BlendMode.OVERLAY": return "叠加";
+			case "BlendMode.SOFTLIGHT": return "柔光";
+			case "BlendMode.HARDLIGHT": return "强光";
+			case "BlendMode.VIVIDLIGHT": return "亮光";
+			case "BlendMode.LINEARLIGHT": return "线性光";
+			case "BlendMode.PINLIGHT": return "点光";
+			case "BlendMode.HARDMIX": return "实色混合";
+			case "BlendMode.DIFFERENCE": return "差值";
+			case "BlendMode.EXCLUSION": return "排除";
+			case "BlendMode.SUBTRACT": return "减去";
+			case "BlendMode.DIVIDE": return "划分";
+			case "BlendMode.HUE": return "色相";
+			case "BlendMode.SATURATION": return "饱和度";
+			case "BlendMode.COLOR": return "颜色";
+			case "BlendMode.LUMINOSITY": return "明度";
+			default: return "特殊模式";
 		}
 	}
 
